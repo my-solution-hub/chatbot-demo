@@ -17,7 +17,26 @@ You speak, the model speaks back through your speakers, and tool calls appear on
 
 ## 1. Prerequisites
 
-- **Python** 3.10, 3.11, 3.12, or 3.13
+- **Python 3.12** (required by `aws-sdk-bedrock-runtime`)
+  
+  We recommend [pyenv](https://github.com/pyenv/pyenv) to manage Python versions without touching your system Python:
+
+  ```bash
+  # Install pyenv (macOS)
+  brew install pyenv
+
+  # Install pyenv (Linux)
+  curl https://pyenv.run | bash
+  # Then add pyenv to your shell — see https://github.com/pyenv/pyenv#set-up-your-shell-environment
+
+  # Install Python 3.12 and set it for this project
+  pyenv install 3.12
+  pyenv local 3.12          # creates .python-version in the repo root
+  python --version          # should print Python 3.12.x
+  ```
+
+  On Windows, use the [Python.org installer](https://www.python.org/downloads/) for 3.12.x.
+
 - **PortAudio** (microphone + speaker bindings used by `sounddevice`)
   | Platform | Install command |
   | --- | --- |
@@ -38,6 +57,9 @@ You speak, the model speaks back through your speakers, and tool calls appear on
 ```bash
 git clone <this repo>
 cd chatbot-demo
+
+# Ensure you're on Python 3.12 (pyenv users: pyenv local 3.12)
+python --version   # must be 3.12.x
 
 python -m venv .venv
 source .venv/bin/activate           # Windows: .venv\Scripts\activate
