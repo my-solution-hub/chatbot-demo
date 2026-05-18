@@ -134,7 +134,7 @@ class SessionManager:
         Transitions: ready → connecting → active (success)
                      ready → connecting → error (failure)
         """
-        if self._state != "ready":
+        if self._state not in ("ready", "error"):
             return
 
         await self._transition("connecting")
@@ -265,8 +265,8 @@ class SessionManager:
     async def stop(self) -> None:
         """Close session gracefully within shutdown deadline.
 
-        Transitions: active → closed
-                     connecting → closed
+        Transitions: active → ready (allows restart)
+                     connecting → ready
 
         Requirements: 2.3, 2.4
         """
@@ -290,7 +290,10 @@ class SessionManager:
                 # Session close failed but we still transition
                 pass
 
-        await self._transition("closed")
+        # Reset session reference so a fresh one is created on next start()
+        self._session = None
+        self._logger = None
+        await self._transition("ready")
 
 
 # ---------------------------------------------------------------------------

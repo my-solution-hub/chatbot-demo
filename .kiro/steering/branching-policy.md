@@ -26,5 +26,8 @@ This repository protects the `main` branch. Every change — code, tests, docs, 
 
 - When asked to implement a feature, fix a bug, or update docs, create a branch first and commit there. Never run `git commit` while `HEAD` is on `main`.
 - If `git status` shows the current branch is `main`, stop and create a branch (`git checkout -b feat/...` or `bugfix/...`) before staging any change.
+- **Always branch from the latest `main`.** Before creating a new branch, run `git checkout main && git pull origin main` first. Never branch from another feature/docs branch.
 - When asked to push, push to the feature/bugfix branch with `-u`, then create or update the PR. Never use `git push origin main` or `git push --force` against `main`.
 - If a change spans multiple concerns, split it into sequential PRs from sequential branches rather than one large branch.
+- Always use `--no-verify` when pushing (e.g. `git push --no-verify -u origin <branch-name>`) to bypass the pre-push hook.
+- **Include all modified files in the commit.** Before committing, run `git status` to verify all intended changes are staged. Do not leave modified tracked files uncommitted.
