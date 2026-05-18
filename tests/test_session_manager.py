@@ -152,7 +152,7 @@ class TestSessionManagerState:
         texts = [c[0][0] for c in calls]
         assert any("Bedrock" in t for t in texts)
 
-    def test_stop_transitions_to_closed(self):
+    def test_stop_transitions_to_ready(self):
         factory, mock_session = _fake_session_factory()
         mgr, send_text, _ = _make_manager(
             session_factory=factory,
@@ -165,7 +165,7 @@ class TestSessionManagerState:
             await mgr.stop()
 
         _run(_start_and_stop())
-        assert mgr.state == "closed"
+        assert mgr.state == "ready"
         mock_session.close.assert_awaited_once()
 
     def test_stop_from_ready_is_noop(self):
