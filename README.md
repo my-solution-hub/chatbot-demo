@@ -1,8 +1,8 @@
-# Nova Sonic Speech Demo
+# Nova Sonic 语音演示
 
-A short, hands-on demo of Amazon Nova Sonic (`amazon.nova-2-sonic-v1:0`) speech-to-speech on Amazon Bedrock. Talk to it, hear it talk back, and watch it call two simple tools (`get_current_time`, `get_weather`) when your spoken request needs them. It is meant as a clean starting point you can read in 30 minutes and extend from there — not a production reference.
+基于 Amazon Nova Sonic (`amazon.nova-2-sonic-v1:0`) 的语音对话演示，运行在 Amazon Bedrock 上。对它说话，它会语音回复，并在需要时调用两个简单工具（`get_current_time`、`get_weather`）。这是一个可以在 30 分钟内读完并在此基础上扩展的起点，而非生产级参考实现。
 
-## What you'll see
+## 效果展示
 
 ```
 Nova Sonic Demo: model=amazon.nova-2-sonic-v1:0 region=ap-northeast-1
@@ -13,201 +13,212 @@ TOOL_RESULT: get_weather {"city":"Seattle","condition":"rainy","temperature_c":1
 ASSISTANT: It's rainy in Seattle, about 14 degrees Celsius.
 ```
 
-You speak, the model speaks back through your speakers, and tool calls appear on stdout in real time.
+你说话，模型通过扬声器回复，工具调用实时显示在标准输出。
 
-## 1. Prerequisites
+## 1. 前置条件
 
-- **Python 3.12** (required by `aws-sdk-bedrock-runtime`)
-  
-  We recommend [pyenv](https://github.com/pyenv/pyenv) to manage Python versions without touching your system Python:
+- **Python 3.12**（`aws-sdk-bedrock-runtime` 要求）
+
+  推荐使用 [pyenv](https://github.com/pyenv/pyenv) 管理 Python 版本：
 
   ```bash
-  # Install pyenv (macOS)
+  # 安装 pyenv (macOS)
   brew install pyenv
 
-  # Install pyenv (Linux)
+  # 安装 pyenv (Linux)
   curl https://pyenv.run | bash
-  # Then add pyenv to your shell — see https://github.com/pyenv/pyenv#set-up-your-shell-environment
+  # 然后将 pyenv 添加到 shell — 参见 https://github.com/pyenv/pyenv#set-up-your-shell-environment
 
-  # Install Python 3.12 and set it for this project
+  # 安装 Python 3.12 并设置为本项目使用
   pyenv install 3.12
-  pyenv local 3.12          # creates .python-version in the repo root
-  python --version          # should print Python 3.12.x
+  pyenv local 3.12          # 在项目根目录创建 .python-version
+  python --version          # 应输出 Python 3.12.x
   ```
 
-  On Windows, use the [Python.org installer](https://www.python.org/downloads/) for 3.12.x.
+  Windows 用户请使用 [Python.org 安装包](https://www.python.org/downloads/) 3.12.x。
 
-- **PortAudio** (microphone + speaker bindings used by `sounddevice`)
-  | Platform | Install command |
+- **PortAudio**（CLI 模式下 `sounddevice` 使用的麦克风和扬声器绑定）
+  | 平台 | 安装命令 |
   | --- | --- |
   | macOS | `brew install portaudio` |
   | Debian / Ubuntu | `sudo apt-get install libportaudio2` |
-  | Windows | Bundled with the `sounddevice` wheel — nothing to install |
-- **AWS account** with Amazon Bedrock access and **Nova Sonic** model access enabled. Currently supported regions:
-  - `us-east-1` (N. Virginia)
-  - `us-east-2` (Ohio)
-  - `us-west-2` (Oregon)
-  - `ap-northeast-1` (Tokyo)
-- **AWS credentials** resolvable by the standard SDK chain (env vars, `~/.aws/credentials`, named profile, SSO, IAM role — anything boto3 understands)
+  | Windows | `sounddevice` wheel 已内置，无需额外安装 |
 
-> **Tip for APAC users:** Tokyo (`ap-northeast-1`) gives the lowest round-trip latency and the cleanest audio. If your account doesn't have Sonic access in Tokyo, Oregon (`us-west-2`) is the next-best option.
+- **AWS 账户**，已开通 Amazon Bedrock 访问权限并启用 **Nova Sonic** 模型。当前支持的区域：
+  - `us-east-1`（弗吉尼亚北部）
+  - `us-east-2`（俄亥俄）
+  - `us-west-2`（俄勒冈）
+  - `ap-northeast-1`（东京）
 
-## 2. Install
+- **AWS 凭证**，可通过标准 SDK 链解析（环境变量、`~/.aws/credentials`、命名配置文件、SSO、IAM 角色等 boto3 支持的任何方式）
+
+> **亚太用户提示：** 东京（`ap-northeast-1`）延迟最低、音频质量最好。如果你的账户在东京没有 Sonic 访问权限，俄勒冈（`us-west-2`）是次优选择。
+
+## 2. 安装
 
 ```bash
 git clone <this repo>
 cd chatbot-demo
 
-# Ensure you're on Python 3.12 (pyenv users: pyenv local 3.12)
-python --version   # must be 3.12.x
+# 确保使用 Python 3.12（pyenv 用户：pyenv local 3.12）
+python --version   # 必须是 3.12.x
 
 python -m venv .venv
 source .venv/bin/activate           # Windows: .venv\Scripts\activate
 
-pip install -r requirements.txt     # runtime
-# (optional) pip install -r requirements-dev.txt  # adds pytest + hypothesis
+pip install -r requirements.txt     # 运行时依赖
+# （可选）pip install -r requirements-dev.txt  # 添加 pytest + hypothesis
 ```
 
-## 3. Configure AWS access
+## 3. 配置 AWS 访问
 
-The demo uses the standard AWS SDK credential chain. Pick whichever you already use:
+演示使用标准 AWS SDK 凭证链，选择你已有的方式：
 
 ```bash
-# Option A: environment variables
+# 方式 A：环境变量
 export AWS_ACCESS_KEY_ID=...
 export AWS_SECRET_ACCESS_KEY=...
 export AWS_REGION=ap-northeast-1
 
-# Option B: named profile (uses ~/.aws/credentials)
+# 方式 B：命名配置文件（使用 ~/.aws/credentials）
 export AWS_PROFILE=my-profile
 export AWS_REGION=ap-northeast-1
 
-# Option C: SSO
+# 方式 C：SSO
 aws sso login --profile my-profile
 export AWS_PROFILE=my-profile
 export AWS_REGION=ap-northeast-1
 ```
 
-The IAM principal needs `bedrock:InvokeModelWithBidirectionalStream` on the Nova Sonic model in the chosen region. If credentials or region are missing or wrong, the demo prints a clear error and exits with one of the codes in the table below.
+IAM 主体需要对所选区域的 Nova Sonic 模型拥有 `bedrock:InvokeModelWithBidirectionalStream` 权限。如果凭证或区域缺失或错误，演示会打印明确的错误信息并以下表中的退出码退出。
 
-## 4. Run
+## 4. 运行
+
+### CLI 模式（需要本地麦克风和扬声器）
 
 ```bash
 python -m nova_sonic_demo
 ```
 
-Speak into the microphone. Press **Ctrl+C** to stop — the demo drains audio, closes the Bedrock session, and exits within 5 seconds.
+对着麦克风说话。按 **Ctrl+C** 停止 — 演示会排空音频、关闭 Bedrock 会话，并在 5 秒内退出。
 
-### Try these prompts
-
-- "Hello." — a simple turn, no tools
-- "What time is it in Tokyo?" — calls `get_current_time`
-- "What's the weather in Seattle?" — calls `get_weather`
-- "Tell me the weather in Paris and the time in New York." — exercises both tools in one turn
-
-## 5. Tuning the audio (recommended for cross-region use)
-
-Nova Sonic streams uncompressed 16-bit PCM both ways, so long-haul links can sound choppy out of the box. The defaults already include three optimisations:
-
-- **Voice activity detection** (VAD): silent frames are dropped, batches of 80 ms are coalesced into one event
-- **Half-duplex echo gate**: the microphone is muted while the speakers are playing the assistant's voice, so the model doesn't talk to itself
-- **Player jitter buffer**: 250 ms of audio is buffered before playback begins, absorbing cross-region network jitter
-
-If you still hear stuttering, try one of these:
+### Web UI 模式（浏览器，无需本地音频驱动）
 
 ```bash
-# Choppy or laggy audio: enlarge the jitter buffer
+python -m nova_sonic_demo.web
+# 打开 http://127.0.0.1:8000
+```
+
+在浏览器中点击 **Start** 按钮开始语音会话，点击 **Stop** 结束。支持实时转录显示和工具调用日志。
+
+### 试试这些提示
+
+- "Hello." — 简单对话，不调用工具
+- "What time is it in Tokyo?" — 调用 `get_current_time`
+- "What's the weather in Seattle?" — 调用 `get_weather`
+- "Tell me the weather in Paris and the time in New York." — 一轮对话中调用两个工具
+
+## 5. 音频调优（跨区域使用时推荐）
+
+Nova Sonic 双向传输未压缩的 16-bit PCM，长距离链路可能会出现卡顿。默认配置已包含三项优化：
+
+- **语音活动检测（VAD）**：静音帧被丢弃，80 ms 的帧被合并为一个事件
+- **半双工回声门控**：扬声器播放助手语音时麦克风静音，防止模型自言自语
+- **播放器抖动缓冲**：播放前缓冲 250 ms 音频，吸收跨区域网络抖动
+
+如果仍有卡顿，尝试以下方式：
+
+```bash
+# 音频卡顿或延迟：增大抖动缓冲
 python -m nova_sonic_demo --prebuffer-ms 400
 
-# Microphone keeps picking up your fan / TV: stricter VAD
+# 麦克风持续拾取风扇/电视声：更严格的 VAD
 python -m nova_sonic_demo --vad-aggressiveness 3
 
-# Wearing headphones (no echo path): free both directions for barge-in
+# 戴耳机（无回声路径）：释放双向通道以支持打断
 python -m nova_sonic_demo --no-echo-cancel
 
-# Bandwidth-constrained: bigger batches, longer hangover
+# 带宽受限：更大的批次，更长的挂起时间
 python -m nova_sonic_demo --vad-batch-frames 6 --vad-hangover-ms 1200
 
-# Compare against the un-tuned baseline
+# 与未调优的基线对比
 python -m nova_sonic_demo --no-vad --no-echo-cancel --prebuffer-ms 0
 ```
 
-All flags:
+所有参数：
 
-| Flag | Default | What it does |
+| 参数 | 默认值 | 作用 |
 | --- | --- | --- |
-| `--no-vad` | off | Stream every microphone frame instead of gating on speech. |
-| `--no-echo-cancel` | off | Disable the mic mute that runs while the speaker is playing. Use only with headphones. |
-| `--vad-aggressiveness` | `2` | webrtcvad strictness, 0 (lenient) to 3 (strict). |
-| `--vad-frame-ms` | `20` | VAD window: 10, 20, or 30 ms. |
-| `--vad-batch-frames` | `4` | VAD frames coalesced into one Bedrock event. 4 = 80 ms. Higher cuts overhead. |
-| `--vad-hangover-ms` | `800` | Keep streaming this long after the last voice frame so pauses aren't clipped. |
-| `--vad-preroll-ms` | `200` | Include this much pre-trigger audio when the gate opens (preserves first phoneme). |
-| `--prebuffer-ms` | `250` | Player jitter buffer warmup. Higher hides more jitter at the cost of latency. |
+| `--no-vad` | 关闭 | 流式传输每一帧麦克风数据，不做语音门控 |
+| `--no-echo-cancel` | 关闭 | 禁用扬声器播放时的麦克风静音。仅在使用耳机时推荐 |
+| `--vad-aggressiveness` | `2` | webrtcvad 严格度，0（宽松）到 3（严格） |
+| `--vad-frame-ms` | `20` | VAD 窗口：10、20 或 30 ms |
+| `--vad-batch-frames` | `4` | 合并为一个 Bedrock 事件的 VAD 帧数。4 = 80 ms。越大开销越低 |
+| `--vad-hangover-ms` | `800` | 最后一个语音帧后继续流式传输的时长，避免截断 |
+| `--vad-preroll-ms` | `200` | 门控打开时包含的预触发音频量（保留第一个音素） |
+| `--prebuffer-ms` | `250` | 播放器抖动缓冲预热。越大隐藏越多抖动，但增加延迟 |
 
-## 6. Reading the stdout output
+## 6. 标准输出格式
 
-Every prefix is one event in the conversation:
+每个前缀代表对话中的一个事件：
 
-| Prefix | Meaning |
+| 前缀 | 含义 |
 | --- | --- |
-| `Nova Sonic Demo: model=... region=...` | Startup banner |
-| `LISTENING: ready for speech` | Microphone is live; you can talk |
-| `USER: <text>` | What the model heard you say (final transcript) |
-| `TOOL_CALL: <name> <args-json>` | Model decided to call a tool |
-| `TOOL_RESULT: <name> <result-json>` | Tool returned a result back to the model |
-| `ASSISTANT: <text>` | What the model said back (final transcript; audio plays simultaneously) |
+| `Nova Sonic Demo: model=... region=...` | 启动横幅 |
+| `LISTENING: ready for speech` | 麦克风就绪，可以说话 |
+| `USER: <text>` | 模型听到你说的话（最终转录） |
+| `TOOL_CALL: <name> <args-json>` | 模型决定调用工具 |
+| `TOOL_RESULT: <name> <result-json>` | 工具返回结果给模型 |
+| `ASSISTANT: <text>` | 模型的回复（最终转录；音频同时播放） |
 
-The demo prints each turn exactly once. If a line is missing, that step did not happen.
+每轮对话只打印一次。如果某行缺失，说明该步骤未发生。
 
-## 7. Troubleshooting
+## 7. 故障排除
 
-| Symptom | Likely cause | Fix |
+| 症状 | 可能原因 | 解决方法 |
 | --- | --- | --- |
-| `Missing input device` (exit 3) | No microphone detected | Plug in / select a default mic |
-| `Region <r> does not support Nova Sonic v2` (exit 2) | Bedrock Sonic isn't available in your `AWS_REGION` | Use one of the supported regions above |
-| `AWS credentials missing or invalid` (exit 4) | Credential chain came up empty | Set `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` or `AWS_PROFILE` |
-| `Bedrock open failed (auth): ...` (exit 5) | Credentials worked locally but Bedrock rejected them | Verify the IAM principal has Bedrock model-invoke permission on Nova Sonic |
-| Demo runs but no `USER:` line ever appears | Mic level is too low, or the system mic is muted | Check OS sound settings; try `--no-vad` to verify capture |
-| Assistant talks to itself in a loop | Echo gate disabled and you're not on headphones | Drop `--no-echo-cancel` or put on headphones |
-| Audio is choppy / robotic | Cross-region jitter | Increase `--prebuffer-ms` (try `400`) and/or use a closer region |
-| Tool call seems to happen but no `TOOL_CALL:` line | Likely a parser regression — please open an issue with the full stdout | — |
+| `Missing input device`（退出码 3） | 未检测到麦克风 | 插入/选择默认麦克风 |
+| `Region <r> does not support Nova Sonic v2`（退出码 2） | 你的 `AWS_REGION` 不支持 Bedrock Sonic | 使用上述支持的区域 |
+| `AWS credentials missing or invalid`（退出码 4） | 凭证链为空 | 设置 `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` 或 `AWS_PROFILE` |
+| `Bedrock open failed (auth): ...`（退出码 5） | 凭证本地有效但 Bedrock 拒绝 | 验证 IAM 主体对 Nova Sonic 有 Bedrock 模型调用权限 |
+| 演示运行但从未出现 `USER:` 行 | 麦克风音量太低或系统麦克风静音 | 检查系统声音设置；尝试 `--no-vad` 验证采集 |
+| 助手自言自语循环 | 回声门控禁用且未使用耳机 | 去掉 `--no-echo-cancel` 或戴上耳机 |
+| 音频卡顿/机器人声 | 跨区域抖动 | 增大 `--prebuffer-ms`（试试 `400`）或使用更近的区域 |
 
-## 8. Exit codes
+## 8. 退出码
 
-| Code | Meaning |
+| 退出码 | 含义 |
 | --- | --- |
-| `0` | Clean shutdown (Ctrl+C) |
-| `2` | Unsupported AWS region |
-| `3` | Missing microphone or speaker |
-| `4` | AWS credentials missing or invalid |
-| `5` | Bedrock session could not be opened (auth / network / region / model) |
+| `0` | 正常关闭（Ctrl+C） |
+| `2` | 不支持的 AWS 区域 |
+| `3` | 缺少麦克风或扬声器 |
+| `4` | AWS 凭证缺失或无效 |
+| `5` | Bedrock 会话无法打开（认证/网络/区域/模型） |
 
-## 9. Architecture at a glance
+## 9. 架构概览
 
-The runtime is a single asyncio event loop. Five modules, each ~one screen of code:
+运行时是一个 asyncio 事件循环。核心模块：
 
-| Module | Responsibility |
+| 模块 | 职责 |
 | --- | --- |
-| `nova_sonic_demo/cli.py` | Lifecycle: startup, event routing, Ctrl+C shutdown |
-| `nova_sonic_demo/session.py` | Bedrock bidirectional stream wrapper; opens the session, sends/receives events |
-| `nova_sonic_demo/audio.py` | Microphone capture, VAD-gated batching, speaker playback with jitter buffer |
-| `nova_sonic_demo/events.py` | Builders + parsers for Nova Sonic input/output events |
-| `nova_sonic_demo/tools/` | Tool registry, dispatcher (with timeout & schema validation), the two demo tools |
-| `nova_sonic_demo/logging.py` | stdout prefix logger (`USER:`, `ASSISTANT:`, `TOOL_CALL:`, `TOOL_RESULT:`) |
+| `nova_sonic_demo/cli.py` | 生命周期：启动、事件路由、Ctrl+C 关闭 |
+| `nova_sonic_demo/session.py` | Bedrock 双向流封装；打开会话、发送/接收事件 |
+| `nova_sonic_demo/audio.py` | 麦克风采集、VAD 门控批处理、扬声器播放（含抖动缓冲） |
+| `nova_sonic_demo/events.py` | Nova Sonic 输入/输出事件的构建器和解析器 |
+| `nova_sonic_demo/tools/` | 工具注册表、调度器（含超时和 Schema 验证）、两个演示工具 |
+| `nova_sonic_demo/logging.py` | stdout 前缀日志器 |
+| `nova_sonic_demo/web/` | Web UI：FastAPI 服务器 + WebSocket + 浏览器客户端 |
 
-The full design lives in [`.kiro/specs/nova-sonic-speech-demo/design.md`](.kiro/specs/nova-sonic-speech-demo/design.md), including sequence diagrams and the property-based testing strategy (P1–P7).
+## 10. 添加自定义工具
 
-## 10. Adding your own tools
-
-`nova_sonic_demo/tools/registry.py` is the only file you need to touch. The pattern is:
+只需修改 `nova_sonic_demo/tools/registry.py`：
 
 ```python
 async def my_tool(args: dict) -> dict:
-    # validate args, do work, return a JSON-serialisable dict
+    # 验证参数、执行操作、返回 JSON 可序列化的 dict
     return {"status": "ok"}
 
-# Then register it alongside the existing tools:
+# 与现有工具一起注册：
 ToolDefinition(
     name="my_tool",
     description="Does the thing.",
@@ -220,29 +231,29 @@ ToolDefinition(
 )
 ```
 
-Tool calls run inside the same asyncio loop, with a 10-second timeout per call and JSON Schema validation. Errors are returned to the model so it can apologise gracefully instead of crashing.
+工具调用在同一个 asyncio 循环中运行，每次调用 10 秒超时，带 JSON Schema 验证。错误会返回给模型，让它优雅地道歉而不是崩溃。
 
-## 11. Running the tests
+## 11. 运行测试
 
 ```bash
 pip install -r requirements-dev.txt
 pytest -q
 ```
 
-The suite includes property-based tests with `hypothesis` covering tool dispatch, deterministic mocked weather, timezone resolution, logger grammar, session lifecycle, and dispatcher latency bounds.
+测试套件包含基于 `hypothesis` 的属性测试，覆盖工具调度、确定性模拟天气、时区解析、日志语法、会话生命周期和调度器延迟边界。
 
-## 12. What this demo deliberately leaves out
+## 12. 本演示刻意未实现的功能
 
-This is a starter. The following are intentionally **not** implemented so the code stays readable:
+这是一个起点。以下功能刻意**未实现**以保持代码可读性：
 
-- Wake-word detection ("Hey Nova")
-- Multi-session continuation past the 8-minute Bedrock connection limit
-- Real weather API integration (the included `get_weather` returns a deterministic mock so the demo runs offline-of-the-internet)
-- Telephony / SIP integration
-- True acoustic echo cancellation (the demo uses a simpler half-duplex mute; works fine on speakers, but doesn't allow barge-in)
+- 唤醒词检测（"Hey Nova"）
+- 超过 8 分钟 Bedrock 连接限制的多会话续接
+- 真实天气 API 集成（内置的 `get_weather` 返回确定性模拟数据，演示可离线运行）
+- 电话/SIP 集成
+- 真正的声学回声消除（演示使用更简单的半双工静音；在扬声器上效果良好，但不支持打断）
 
-These are easy to layer on once you understand the core loop.
+理解核心循环后，这些都很容易在此基础上添加。
 
-## License
+## 许可证
 
-See [`LICENSE`](LICENSE).
+参见 [`LICENSE`](LICENSE)。
