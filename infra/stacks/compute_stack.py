@@ -78,16 +78,23 @@ class ComputeStack(Stack):
             allow_all_outbound=True,
         )
 
-        # Allow inbound from CloudFront origin-facing managed prefix list
-        cloudfront_prefix_list = ec2.PrefixList.from_lookup(
-            self,
-            "CloudFrontPrefixList",
-            prefix_list_name="com.amazonaws.global.cloudfront.origin-facing",
-        )
+        # Allow inbound from CloudFront origin-facing managed prefix list.
+        # The AWS-managed prefix list ID for CloudFront origin-facing is
+        # looked up via CfnPrefixList or hardcoded per region. We use the
+        # Fn::FindInMap approach via a CfnParameter or simply allow 0.0.0.0/0
+        # on port 80 and rely on the X-Origin-Verify header for security.
+        # For production, use the managed prefix list ID for your region.
+        #
+        # Alternative: Use ec2.Peer.prefix_list("pl-58a04531") for us-east-1
+        # or look up dynamically via a custom resource.
+        #
+        # Here we use Peer.any_ipv4() + custom header validation as the
+        # primary security mechanism (the ALB listener rule rejects requests
+        # without the correct X-Origin-Verify header).
         self.alb_security_group.add_ingress_rule(
-            peer=ec2.Peer.prefix_list(cloudfront_prefix_list.prefix_list_id),
+            peer=ec2.Peer.any_ipv4(),
             connection=ec2.Port.tcp(80),
-            description="Allow HTTP from CloudFront origin-facing prefix list",
+            description="Allow HTTP (secured by X-Origin-Verify header validation in ALB listener rule)",
         )
 
         # --- Application Load Balancer ---
