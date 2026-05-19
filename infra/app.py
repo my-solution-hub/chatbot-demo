@@ -5,6 +5,7 @@ import os
 
 import aws_cdk as cdk
 
+from stacks.ecr_stack import EcrStack
 from stacks.network_stack import NetworkStack
 from stacks.compute_stack import ComputeStack
 from stacks.agent_stack import AgentStack
@@ -18,16 +19,26 @@ account = os.environ.get("CDK_DEPLOY_ACCOUNT", os.environ.get("CDK_DEFAULT_ACCOU
 
 env = cdk.Environment(account=account, region=region)
 
-# Stack instantiation
+# Image tag — CI passes commit SHA via context. Local deploys use "latest".
+image_tag = app.node.try_get_context("imageTag") or "latest"
+
+# --- Stacks ---
+
+# ECR must be deployed first (images pushed between ECR and Compute deploys)
+ecr_stack = EcrStack(app, "ChatbotEcrStack", env=env)
+
 network_stack = NetworkStack(app, "ChatbotNetworkStack", env=env)
 
 compute_stack = ComputeStack(
     app,
     "ChatbotComputeStack",
     vpc=network_stack.vpc,
+    proxy_repo=ecr_stack.proxy_repo,
+    image_tag=image_tag,
     env=env,
 )
 compute_stack.add_dependency(network_stack)
+compute_stack.add_dependency(ecr_stack)
 
 agent_stack = AgentStack(app, "ChatbotAgentStack", env=env)
 
