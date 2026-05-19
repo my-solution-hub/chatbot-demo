@@ -22,9 +22,11 @@ class DistributionStack(Stack):
 
         self.alb = alb
 
-        # --- Custom Origin Request Policy for adding X-Origin-Verify header ---
-        # CloudFront adds this header to all origin requests so the ALB can
-        # verify traffic is coming from CloudFront (matches the ALB listener rule).
+        # --- Custom Origin Request Policy ---
+        # CloudFront handles WebSocket upgrade (Connection/Upgrade) automatically.
+        # We only need to forward the Sec-WebSocket-* headers that the server needs.
+        # Note: Connection and Upgrade are hop-by-hop headers and CANNOT be
+        # included in an OriginRequestPolicy — CloudFront manages them internally.
         origin_request_policy = cloudfront.OriginRequestPolicy(
             self,
             "AllowWebSocketHeaders",
@@ -34,9 +36,6 @@ class DistributionStack(Stack):
                 "Sec-WebSocket-Version",
                 "Sec-WebSocket-Protocol",
                 "Sec-WebSocket-Extensions",
-                "Sec-WebSocket-Accept",
-                "Connection",
-                "Upgrade",
             ),
         )
 
