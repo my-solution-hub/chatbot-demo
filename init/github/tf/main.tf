@@ -10,7 +10,8 @@ data "aws_iam_openid_connect_provider" "github" {
 }
 
 resource "aws_iam_role" "github_actions" {
-  name = "${var.project_name}-github-actions-role"
+  name                 = "${var.project_name}-github-actions-role"
+  max_session_duration = 7200 # 2 hours — CDK multi-stack deploys can take 30+ minutes
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
