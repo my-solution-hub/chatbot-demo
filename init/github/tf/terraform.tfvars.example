@@ -1,0 +1,19 @@
+# terraform.tfvars.example — Copy to terraform.tfvars and fill in your values
+
+project_name = "chatbot-demo"
+
+# Required: Your GitHub organization (or username) and repository name
+github_org  = "my-solution-hub"
+github_repo = "chatbot-demo"
+
+# AWS configuration
+aws_profile   = "default"              # AWS CLI profile
+aws_region    = "ap-northeast-1"       # Deployment region (Tokyo)
+deploy_branch = "main"                 # Branch that triggers deploy
+
+# Common tags applied to all resources
+tags = {
+  Project   = "chatbot-demo"
+  ManagedBy = "terraform"
+  Component = "oidc-bootstrap"
+}
