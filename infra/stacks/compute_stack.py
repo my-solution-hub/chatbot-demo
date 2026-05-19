@@ -2,6 +2,7 @@
 
 from aws_cdk import CfnOutput, Duration, Stack
 from aws_cdk import aws_ec2 as ec2
+from aws_cdk import aws_ecr as ecr
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
@@ -12,7 +13,14 @@ class ComputeStack(Stack):
     """Defines ECS Fargate service and ALB for WebSocket proxy."""
 
     def __init__(
-        self, scope: Construct, construct_id: str, *, vpc: ec2.IVpc, **kwargs
+        self,
+        scope: Construct,
+        construct_id: str,
+        *,
+        vpc: ec2.IVpc,
+        proxy_repo: ecr.IRepository,
+        image_tag: str = "latest",
+        **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
@@ -61,11 +69,22 @@ class ComputeStack(Stack):
 
         self.task_definition.add_container(
             "ChatbotContainer",
-            image=ecs.ContainerImage.from_registry("amazon/amazon-ecs-sample"),
+            image=ecs.ContainerImage.from_ecr_repository(proxy_repo, image_tag),
             port_mappings=[
                 ecs.PortMapping(container_port=8000, protocol=ecs.Protocol.TCP)
             ],
+            environment={
+                "DEPLOYMENT_MODE": "cloud",
+                "AWS_REGION": self.region,
+            },
             logging=ecs.LogDrivers.aws_logs(stream_prefix="chatbot"),
+            health_check=ecs.HealthCheck(
+                command=["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"],
+                interval=Duration.seconds(30),
+                timeout=Duration.seconds(5),
+                retries=3,
+                start_period=Duration.seconds(10),
+            ),
         )
 
         # --- ALB Security Group ---

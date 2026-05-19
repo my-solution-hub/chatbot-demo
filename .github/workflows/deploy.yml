@@ -15,6 +15,7 @@ concurrency:
 
 env:
   AWS_REGION: ap-northeast-1
+  ECR_REPO: chatbot-demo-proxy
 
 jobs:
   test:
@@ -41,7 +42,7 @@ jobs:
         run: pytest -q
 
   deploy:
-    name: CDK Deploy
+    name: Deploy
     needs: test
     runs-on: ubuntu-latest
 
@@ -77,6 +78,27 @@ jobs:
           pip install -r requirements.txt
           pip install -r infra/requirements.txt
 
-      - name: CDK Deploy
+      # Step 1: Deploy ECR stack first
+      - name: CDK Deploy - ECR Stack
         working-directory: infra
-        run: cdk deploy --all --require-approval never --concurrency 2
+        run: cdk deploy ChatbotEcrStack --require-approval never
+
+      # Step 2: Build and push Docker image to ECR
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
+          docker tag $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPO:latest
+          docker push $ECR_REGISTRY/$ECR_REPO:latest
+
+      # Step 3: Deploy remaining stacks with the image tag
+      - name: CDK Deploy - All remaining stacks
+        working-directory: infra
+        run: cdk deploy --all --require-approval never --concurrency 2 -c imageTag=${{ github.sha }}
