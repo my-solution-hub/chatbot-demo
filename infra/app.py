@@ -47,6 +47,10 @@ compute_stack = ComputeStack(
     proxy_repo=ecr_stack.proxy_repo,
     image_tag=image_tag,
     strands_runtime_arn=agent_stack.strands_runtime_arn.to_string(),
+    tool_lambda_arns={
+        "get_current_time": agent_stack.time_function.function_arn,
+        "get_weather": agent_stack.weather_function.function_arn,
+    },
     env=env,
 )
 compute_stack.add_dependency(network_stack)
