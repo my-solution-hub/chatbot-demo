@@ -9,6 +9,7 @@ Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 2.4, 7.1, 7.2, 7.3, 10.3
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
@@ -240,3 +241,115 @@ async def websocket_session(ws: WebSocket) -> None:
                 pass
         await manager.stop()
         logger.info("WebSocket session cleaned up")
+
+
+# ---------------------------------------------------------------------------
+# AgentCore Runtime WebSocket proxy endpoint
+# ---------------------------------------------------------------------------
+
+# Runtime ARN for the AgentCore proxy (set by CDK in cloud mode)
+_STRANDS_RUNTIME_ARN = os.environ.get("STRANDS_RUNTIME_ARN", "")
+
+
+@app.websocket("/ws/agent")
+async def websocket_agent_proxy(ws: WebSocket) -> None:
+    """WebSocket proxy to AgentCore Runtime (BidiAgent).
+
+    Proxies the browser WebSocket connection to the Strands BidiAgent
+    running on AgentCore Runtime. The agent handles Nova Sonic audio
+    streaming and tool calls via MCP Gateway.
+
+    Protocol:
+    - Binary messages from browser: raw PCM audio → forwarded as base64 audio events
+    - Text messages from browser: JSON commands (start/stop) → translated to agent protocol
+    - Agent sends: JSON events (audio, transcript, tool_call, etc.) → forwarded to browser
+    - Agent audio: base64 audio events → decoded to binary PCM → sent to browser
+    """
+    if not _STRANDS_RUNTIME_ARN:
+        await ws.close(code=4000, reason="AgentCore Runtime not configured")
+        return
+
+    # Validate Origin
+    origin = ws.headers.get("origin")
+    if not validate_origin(origin, _config):
+        logger.warning("Rejected agent proxy connection with invalid origin: %s", origin)
+        await ws.close(code=4003, reason="Origin not allowed")
+        return
+
+    await ws.accept()
+
+    from nova_sonic_demo.web.agentcore_ws_proxy import AgentCoreWsProxy
+
+    proxy = AgentCoreWsProxy(
+        runtime_arn=_STRANDS_RUNTIME_ARN,
+        region=_config.region,
+    )
+
+    # Helpers bound to this WebSocket connection
+    async def _send_text(text: str) -> None:
+        if ws.client_state == WebSocketState.CONNECTED:
+            await ws.send_text(text)
+
+    async def _send_bytes(data: bytes) -> None:
+        if ws.client_state == WebSocketState.CONNECTED:
+            await ws.send_bytes(data)
+
+    receive_task: asyncio.Task | None = None
+
+    try:
+        # Connect to AgentCore Runtime
+        await _send_text(json.dumps({"type": "status", "state": "connecting"}))
+        await proxy.connect()
+        await _send_text(json.dumps({"type": "status", "state": "active"}))
+
+        # Start receiving events from agent in background
+        receive_task = asyncio.create_task(
+            proxy.receive_events(on_audio=_send_bytes, on_text=_send_text)
+        )
+
+        # Forward browser messages to agent
+        while True:
+            message = await ws.receive()
+
+            if message["type"] == "websocket.receive":
+                if "bytes" in message and message["bytes"]:
+                    # Binary PCM audio → forward to agent
+                    await proxy.send_audio(message["bytes"])
+                elif "text" in message and message["text"]:
+                    # Text command → forward to agent
+                    try:
+                        cmd = json.loads(message["text"])
+                        cmd_type = cmd.get("type", "")
+                        if cmd_type == "start":
+                            # Already connected, just acknowledge
+                            pass
+                        elif cmd_type == "stop":
+                            break
+                        else:
+                            # Forward other text messages
+                            await proxy.send_text(message["text"])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            elif message["type"] == "websocket.disconnect":
+                break
+
+    except WebSocketDisconnect:
+        logger.info("Agent proxy: client disconnected")
+    except Exception as exc:
+        logger.error("Agent proxy error: %s: %s", type(exc).__name__, exc)
+        try:
+            await _send_text(json.dumps({
+                "type": "error",
+                "message": f"Proxy error: {type(exc).__name__}: {str(exc)[:200]}",
+            }))
+        except Exception:
+            pass
+    finally:
+        if receive_task is not None:
+            receive_task.cancel()
+            try:
+                await receive_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        await proxy.close()
+        logger.info("Agent proxy session cleaned up")

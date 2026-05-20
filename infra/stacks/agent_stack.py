@@ -10,7 +10,7 @@ References: ref-cdk/lib/agent-stack.ts, ref-cdk/lib/gateway-stack.ts
 
 from __future__ import annotations
 
-from aws_cdk import CfnOutput, CfnResource, Duration, Stack
+from aws_cdk import CfnOutput, CfnResource, Duration, Fn, Stack, Token
 from aws_cdk import aws_ecr as ecr
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
@@ -209,7 +209,7 @@ class AgentStack(Stack):
 
         # The Runtime resource
         image_uri = f"{strands_agent_repo.repository_uri}:{image_tag}"
-        gateway_url = self.gateway.get_att("GatewayUrl")
+        gateway_arn = self.gateway.get_att("GatewayArn")
 
         self.strands_runtime = CfnResource(
             self,
@@ -223,9 +223,8 @@ class AgentStack(Stack):
                 "RoleArn": runtime_role.role_arn,
                 "NetworkConfiguration": {"NetworkMode": "PUBLIC"},
                 "EnvironmentVariables": {
-                    "MCP_SERVER_URL": gateway_url,
+                    "MCP_GATEWAY_ARNS": Fn.join("", ['["', Token.as_string(gateway_arn), '"]']),
                     "AWS_REGION": self.region,
-                    "MODEL_ID": "us.amazon.nova-pro-v1:0",
                 },
             },
         )
@@ -240,9 +239,9 @@ class AgentStack(Stack):
 
         CfnOutput(
             self,
-            "GatewayUrl",
-            value=gateway_url.to_string(),
-            description="AgentCore Gateway MCP endpoint URL",
+            "GatewayArn",
+            value=gateway_arn.to_string(),
+            description="AgentCore Gateway ARN (for MCP tool access)",
         )
         CfnOutput(
             self,

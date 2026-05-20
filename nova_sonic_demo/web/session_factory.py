@@ -2,7 +2,7 @@
 
 Based on the :class:`~nova_sonic_demo.deployment_config.DeploymentConfig`,
 returns either:
-- Local mode: SessionManager with local tool dispatch
+- Local mode: SessionManager with local tool dispatch (Nova Sonic on Fargate)
 - Cloud mode: SessionManager with remote tool dispatch (Lambda via boto3)
 
 Both modes use Nova Sonic for bidirectional audio streaming. The difference

@@ -55,7 +55,10 @@ class ComputeStack(Stack):
         self.task_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
-                actions=["bedrock-agentcore:InvokeAgentRuntime"],
+                actions=[
+                    "bedrock-agentcore:InvokeAgentRuntime",
+                    "bedrock-agentcore:InvokeAgentRuntimeWithWebSocketStream",
+                ],
                 resources=[
                     runtime_resource,
                     f"{runtime_resource}/*",
