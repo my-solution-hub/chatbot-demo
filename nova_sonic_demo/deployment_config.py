@@ -36,24 +36,15 @@ class DeploymentConfig:
         """Validate configuration consistency.
 
         Raises:
-            ValueError: If *mode* is not ``"local"`` or ``"cloud"``, or if
-                cloud mode is missing required identifiers.
+            ValueError: If *mode* is not ``"local"`` or ``"cloud"``.
         """
         if self.mode not in ("local", "cloud"):
             raise ValueError(
                 f"DEPLOYMENT_MODE must be 'local' or 'cloud', got '{self.mode}'"
             )
-        if self.mode == "cloud":
-            # Either strands_runtime_arn OR (agent_id + agent_alias_id) is required
-            if not self.strands_runtime_arn:
-                if not self.agent_id:
-                    raise ValueError(
-                        "STRANDS_RUNTIME_ARN or AGENT_ID required in cloud mode"
-                    )
-                if not self.agent_alias_id:
-                    raise ValueError(
-                        "AGENT_ALIAS_ID required in cloud mode when using AGENT_ID"
-                    )
+        # Cloud mode no longer strictly requires agent_id/agent_alias_id
+        # because the primary path uses Nova Sonic + remote Lambda dispatch.
+        # strands_runtime_arn and agent_id are optional for future use.
 
 
 def load_config() -> DeploymentConfig:

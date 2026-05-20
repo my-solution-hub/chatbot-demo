@@ -35,64 +35,27 @@ class TestModeValidation:
         )
         cfg.validate()  # Should not raise
 
+    def test_cloud_mode_valid_without_agent_fields(self):
+        """Cloud mode no longer requires agent_id — uses Nova Sonic + remote Lambda."""
+        cfg = DeploymentConfig(
+            mode="cloud",
+            region="us-east-1",
+        )
+        cfg.validate()  # Should not raise
+
+    def test_cloud_mode_valid_with_runtime_arn(self):
+        cfg = DeploymentConfig(
+            mode="cloud",
+            region="us-east-1",
+            strands_runtime_arn="arn:aws:bedrock-agentcore:us-east-1:123456:runtime/test",
+        )
+        cfg.validate()  # Should not raise
+
     @pytest.mark.parametrize("bad_mode", ["", "LOCAL", "Cloud", "production", "dev", "test"])
     def test_invalid_mode_raises(self, bad_mode):
         cfg = DeploymentConfig(mode=bad_mode, region="us-east-1")
         with pytest.raises(ValueError, match="DEPLOYMENT_MODE must be 'local' or 'cloud'"):
             cfg.validate()
-
-
-# ---------------------------------------------------------------------------
-# DeploymentConfig.validate() — cloud mode requires agent fields
-# ---------------------------------------------------------------------------
-
-
-class TestCloudModeValidation:
-    """Cloud mode requires agent_id and agent_alias_id."""
-
-    def test_cloud_missing_agent_id_raises(self):
-        cfg = DeploymentConfig(
-            mode="cloud",
-            region="us-east-1",
-            agent_id=None,
-            agent_alias_id="ALIAS456",
-        )
-        with pytest.raises(ValueError, match="AGENT_ID required in cloud mode"):
-            cfg.validate()
-
-    def test_cloud_empty_agent_id_raises(self):
-        cfg = DeploymentConfig(
-            mode="cloud",
-            region="us-east-1",
-            agent_id="",
-            agent_alias_id="ALIAS456",
-        )
-        with pytest.raises(ValueError, match="AGENT_ID required in cloud mode"):
-            cfg.validate()
-
-    def test_cloud_missing_agent_alias_id_raises(self):
-        cfg = DeploymentConfig(
-            mode="cloud",
-            region="us-east-1",
-            agent_id="AGENT123",
-            agent_alias_id=None,
-        )
-        with pytest.raises(ValueError, match="AGENT_ALIAS_ID required in cloud mode"):
-            cfg.validate()
-
-    def test_cloud_empty_agent_alias_id_raises(self):
-        cfg = DeploymentConfig(
-            mode="cloud",
-            region="us-east-1",
-            agent_id="AGENT123",
-            agent_alias_id="",
-        )
-        with pytest.raises(ValueError, match="AGENT_ALIAS_ID required in cloud mode"):
-            cfg.validate()
-
-    def test_local_mode_does_not_require_agent_fields(self):
-        cfg = DeploymentConfig(mode="local", region="us-east-1")
-        cfg.validate()  # Should not raise even without agent_id/agent_alias_id
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +90,7 @@ class TestLoadConfig:
         monkeypatch.delenv("AGENT_ID", raising=False)
         monkeypatch.delenv("AGENT_ALIAS_ID", raising=False)
         monkeypatch.delenv("AWS_REGION", raising=False)
+        monkeypatch.delenv("STRANDS_RUNTIME_ARN", raising=False)
 
         cfg = load_config()
         assert cfg.mode == "local"
@@ -139,12 +103,37 @@ class TestLoadConfig:
         monkeypatch.setenv("AGENT_ID", "MY_AGENT")
         monkeypatch.setenv("AGENT_ALIAS_ID", "MY_ALIAS")
         monkeypatch.setenv("AWS_REGION", "us-west-2")
+        monkeypatch.delenv("STRANDS_RUNTIME_ARN", raising=False)
 
         cfg = load_config()
         assert cfg.mode == "cloud"
         assert cfg.region == "us-west-2"
         assert cfg.agent_id == "MY_AGENT"
         assert cfg.agent_alias_id == "MY_ALIAS"
+
+    def test_reads_cloud_mode_without_agent_fields(self, monkeypatch):
+        """Cloud mode works without agent_id (uses Nova Sonic + remote Lambda)."""
+        monkeypatch.setenv("DEPLOYMENT_MODE", "cloud")
+        monkeypatch.delenv("AGENT_ID", raising=False)
+        monkeypatch.delenv("AGENT_ALIAS_ID", raising=False)
+        monkeypatch.setenv("AWS_REGION", "ap-northeast-1")
+        monkeypatch.delenv("STRANDS_RUNTIME_ARN", raising=False)
+
+        cfg = load_config()
+        assert cfg.mode == "cloud"
+        assert cfg.agent_id is None
+        assert cfg.agent_alias_id is None
+
+    def test_reads_strands_runtime_arn_from_env(self, monkeypatch):
+        monkeypatch.setenv("DEPLOYMENT_MODE", "cloud")
+        monkeypatch.setenv("STRANDS_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-east-1:123:runtime/test")
+        monkeypatch.delenv("AGENT_ID", raising=False)
+        monkeypatch.delenv("AGENT_ALIAS_ID", raising=False)
+        monkeypatch.setenv("AWS_REGION", "us-east-1")
+
+        cfg = load_config()
+        assert cfg.mode == "cloud"
+        assert cfg.strands_runtime_arn == "arn:aws:bedrock-agentcore:us-east-1:123:runtime/test"
 
     def test_raises_on_invalid_mode_from_env(self, monkeypatch):
         monkeypatch.setenv("DEPLOYMENT_MODE", "staging")
@@ -154,37 +143,23 @@ class TestLoadConfig:
         with pytest.raises(ValueError, match="DEPLOYMENT_MODE must be 'local' or 'cloud'"):
             load_config()
 
-    def test_raises_when_cloud_mode_missing_agent_id(self, monkeypatch):
-        monkeypatch.setenv("DEPLOYMENT_MODE", "cloud")
-        monkeypatch.delenv("AGENT_ID", raising=False)
-        monkeypatch.setenv("AGENT_ALIAS_ID", "ALIAS")
-
-        with pytest.raises(ValueError, match="AGENT_ID required in cloud mode"):
-            load_config()
-
-    def test_raises_when_cloud_mode_missing_agent_alias_id(self, monkeypatch):
-        monkeypatch.setenv("DEPLOYMENT_MODE", "cloud")
-        monkeypatch.setenv("AGENT_ID", "AGENT")
-        monkeypatch.delenv("AGENT_ALIAS_ID", raising=False)
-
-        with pytest.raises(ValueError, match="AGENT_ALIAS_ID required in cloud mode"):
-            load_config()
-
     def test_empty_agent_id_env_treated_as_none(self, monkeypatch):
         monkeypatch.setenv("DEPLOYMENT_MODE", "cloud")
         monkeypatch.setenv("AGENT_ID", "")
         monkeypatch.setenv("AGENT_ALIAS_ID", "ALIAS")
+        monkeypatch.delenv("STRANDS_RUNTIME_ARN", raising=False)
 
-        with pytest.raises(ValueError, match="AGENT_ID required in cloud mode"):
-            load_config()
+        cfg = load_config()
+        assert cfg.agent_id is None
 
     def test_empty_agent_alias_id_env_treated_as_none(self, monkeypatch):
         monkeypatch.setenv("DEPLOYMENT_MODE", "cloud")
         monkeypatch.setenv("AGENT_ID", "AGENT")
         monkeypatch.setenv("AGENT_ALIAS_ID", "")
+        monkeypatch.delenv("STRANDS_RUNTIME_ARN", raising=False)
 
-        with pytest.raises(ValueError, match="AGENT_ALIAS_ID required in cloud mode"):
-            load_config()
+        cfg = load_config()
+        assert cfg.agent_alias_id is None
 
 
 # ---------------------------------------------------------------------------
