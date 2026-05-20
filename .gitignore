@@ -152,6 +152,14 @@ __pycache__/
 venv/
 env/
 
+# IDE
+.vscode/
+.idea/
+
+# CDK
+infra/cdk.out/
+infra/cdk.context.json
+
 # Test caches
 .pytest_cache/
 .hypothesis/
