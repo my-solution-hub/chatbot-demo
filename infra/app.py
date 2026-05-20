@@ -29,18 +29,29 @@ ecr_stack = EcrStack(app, "ChatbotEcrStack", env=env)
 
 network_stack = NetworkStack(app, "ChatbotNetworkStack", env=env)
 
+# AgentStack: Gateway + Runtime (depends on ECR for the agent image)
+agent_stack = AgentStack(
+    app,
+    "ChatbotAgentStack",
+    strands_agent_repo=ecr_stack.strands_agent_repo,
+    image_tag=image_tag,
+    env=env,
+)
+agent_stack.add_dependency(ecr_stack)
+
+# ComputeStack: Fargate proxy (depends on Network + ECR + Agent for runtime ARN)
 compute_stack = ComputeStack(
     app,
     "ChatbotComputeStack",
     vpc=network_stack.vpc,
     proxy_repo=ecr_stack.proxy_repo,
     image_tag=image_tag,
+    strands_runtime_arn=agent_stack.strands_runtime_arn.to_string(),
     env=env,
 )
 compute_stack.add_dependency(network_stack)
 compute_stack.add_dependency(ecr_stack)
-
-agent_stack = AgentStack(app, "ChatbotAgentStack", env=env)
+compute_stack.add_dependency(agent_stack)
 
 distribution_stack = DistributionStack(
     app,
