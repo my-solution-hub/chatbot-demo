@@ -85,6 +85,13 @@ class DistributionStack(Stack):
                     cache_policy=websocket_cache_policy,
                     origin_request_policy=origin_request_policy,
                 ),
+                "/ws/agent": cloudfront.BehaviorOptions(
+                    origin=alb_origin,
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
+                    allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
+                    cache_policy=websocket_cache_policy,
+                    origin_request_policy=origin_request_policy,
+                ),
             },
         )
 
