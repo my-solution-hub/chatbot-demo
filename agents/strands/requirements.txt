@@ -1,5 +1,6 @@
-strands-agents>=0.1.0
-strands-agents-tools>=0.1.0
+strands-agents[bidi]>=0.1.0
 bedrock-agentcore>=0.1.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
 aws-opentelemetry-distro>=0.10.1
 boto3>=1.40.0

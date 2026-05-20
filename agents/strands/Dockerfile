@@ -1,4 +1,4 @@
-# Strands Agent container for AgentCore Runtime
+# Strands BidiAgent container for AgentCore Runtime
 # Platform: linux/arm64 (required by AgentCore)
 FROM --platform=linux/arm64 python:3.12-slim-bookworm
 
