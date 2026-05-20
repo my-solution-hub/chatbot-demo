@@ -20,6 +20,7 @@ class ComputeStack(Stack):
         vpc: ec2.IVpc,
         proxy_repo: ecr.IRepository,
         image_tag: str = "latest",
+        strands_runtime_arn: str = "",
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -34,26 +35,28 @@ class ComputeStack(Stack):
         )
 
         # --- IAM: Fargate Task Role with least privilege ---
-        # The task role allows the Fargate container to invoke the specific
-        # AgentCore agent. The agent ARN is parameterized via context or
-        # environment; here we scope to the account/region.
+        # The task role allows the Fargate container to invoke the AgentCore Runtime.
         self.task_role = iam.Role(
             self,
             "ChatbotTaskRole",
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
-            description="Fargate task role - allows invoking the specific Bedrock AgentCore agent",
+            description="Fargate task role - allows invoking AgentCore Runtime",
         )
 
-        # Scope bedrock:InvokeAgent to the specific agent ARN.
-        # The agent ARN pattern: arn:aws:bedrock:<region>:<account>:agent/<agent-id>
-        # Using a wildcard for agent-id since the actual ID is created by AgentStack.
-        # In production, this should be narrowed to the exact agent ARN via cross-stack reference.
+        # Grant InvokeAgentRuntime on the specific runtime ARN.
+        # Falls back to wildcard if ARN is not yet available (initial deploy).
+        runtime_resource = (
+            strands_runtime_arn
+            if strands_runtime_arn
+            else f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:runtime/*"
+        )
         self.task_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
-                actions=["bedrock:InvokeAgent"],
+                actions=["bedrock-agentcore:InvokeAgentRuntime"],
                 resources=[
-                    f"arn:aws:bedrock:{self.region}:{self.account}:agent/*",
+                    runtime_resource,
+                    f"{runtime_resource}/*",
                 ],
             )
         )
@@ -76,6 +79,7 @@ class ComputeStack(Stack):
             environment={
                 "DEPLOYMENT_MODE": "cloud",
                 "AWS_REGION": self.region,
+                "STRANDS_RUNTIME_ARN": strands_runtime_arn or "",
             },
             logging=ecs.LogDrivers.aws_logs(stream_prefix="chatbot"),
             health_check=ecs.HealthCheck(

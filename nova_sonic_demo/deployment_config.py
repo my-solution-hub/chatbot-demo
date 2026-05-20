@@ -22,6 +22,7 @@ class DeploymentConfig:
         agent_id: Bedrock AgentCore agent ID (required in cloud mode).
         agent_alias_id: Bedrock AgentCore agent alias ID (required in cloud mode).
         agentcore_endpoint: Optional endpoint override for testing.
+        strands_runtime_arn: AgentCore Runtime ARN (alternative to agent_id/alias).
     """
 
     mode: str
@@ -29,23 +30,30 @@ class DeploymentConfig:
     agent_id: Optional[str] = None
     agent_alias_id: Optional[str] = None
     agentcore_endpoint: Optional[str] = None
+    strands_runtime_arn: Optional[str] = None
 
     def validate(self) -> None:
         """Validate configuration consistency.
 
         Raises:
             ValueError: If *mode* is not ``"local"`` or ``"cloud"``, or if
-                cloud mode is missing required agent identifiers.
+                cloud mode is missing required identifiers.
         """
         if self.mode not in ("local", "cloud"):
             raise ValueError(
                 f"DEPLOYMENT_MODE must be 'local' or 'cloud', got '{self.mode}'"
             )
         if self.mode == "cloud":
-            if not self.agent_id:
-                raise ValueError("AGENT_ID required in cloud mode")
-            if not self.agent_alias_id:
-                raise ValueError("AGENT_ALIAS_ID required in cloud mode")
+            # Either strands_runtime_arn OR (agent_id + agent_alias_id) is required
+            if not self.strands_runtime_arn:
+                if not self.agent_id:
+                    raise ValueError(
+                        "STRANDS_RUNTIME_ARN or AGENT_ID required in cloud mode"
+                    )
+                if not self.agent_alias_id:
+                    raise ValueError(
+                        "AGENT_ALIAS_ID required in cloud mode when using AGENT_ID"
+                    )
 
 
 def load_config() -> DeploymentConfig:
@@ -68,6 +76,7 @@ def load_config() -> DeploymentConfig:
         region=os.environ.get("AWS_REGION", "ap-northeast-1"),
         agent_id=os.environ.get("AGENT_ID") or None,
         agent_alias_id=os.environ.get("AGENT_ALIAS_ID") or None,
+        strands_runtime_arn=os.environ.get("STRANDS_RUNTIME_ARN") or None,
     )
     config.validate()
     return config

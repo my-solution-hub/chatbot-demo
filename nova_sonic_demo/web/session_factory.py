@@ -53,6 +53,16 @@ def create_session_manager(
                 AgentCoreSessionManager,
             )
 
+            # Prefer strands_runtime_arn if available (new AgentCore Runtime path)
+            if config.strands_runtime_arn:
+                return AgentCoreSessionManager(
+                    send_text,
+                    send_bytes,
+                    agent_id=config.strands_runtime_arn,
+                    agent_alias_id="DEFAULT",
+                    region=config.region,
+                )
+
             return AgentCoreSessionManager(
                 send_text,
                 send_bytes,

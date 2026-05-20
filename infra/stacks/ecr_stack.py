@@ -20,3 +20,14 @@ class EcrStack(Stack):
                 ecr.LifecycleRule(max_image_count=10, description="Keep last 10 images"),
             ],
         )
+
+        # Strands agent container for AgentCore Runtime
+        self.strands_agent_repo = ecr.Repository(
+            self,
+            "StrandsAgentRepo",
+            repository_name="chatbot-demo-strands-agent",
+            removal_policy=RemovalPolicy.RETAIN,
+            lifecycle_rules=[
+                ecr.LifecycleRule(max_image_count=10, description="Keep last 10 images"),
+            ],
+        )
