@@ -21,6 +21,7 @@ class ComputeStack(Stack):
         proxy_repo: ecr.IRepository,
         image_tag: str = "latest",
         strands_runtime_arn: str = "",
+        tool_lambda_arns: dict[str, str] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -35,12 +36,13 @@ class ComputeStack(Stack):
         )
 
         # --- IAM: Fargate Task Role with least privilege ---
-        # The task role allows the Fargate container to invoke the AgentCore Runtime.
+        # The task role allows the Fargate container to invoke the AgentCore Runtime
+        # and the Lambda tool functions.
         self.task_role = iam.Role(
             self,
             "ChatbotTaskRole",
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
-            description="Fargate task role - allows invoking AgentCore Runtime",
+            description="Fargate task role - allows invoking AgentCore Runtime and Lambda tools",
         )
 
         # Grant InvokeAgentRuntime on the specific runtime ARN.
@@ -57,6 +59,31 @@ class ComputeStack(Stack):
                 resources=[
                     runtime_resource,
                     f"{runtime_resource}/*",
+                ],
+            )
+        )
+
+        # Grant Lambda invoke for tool functions (cloud mode tool dispatch)
+        _tool_arns = tool_lambda_arns or {}
+        if _tool_arns:
+            self.task_role.add_to_policy(
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=["lambda:InvokeFunction"],
+                    resources=list(_tool_arns.values()),
+                )
+            )
+
+        # Grant Bedrock model invocation (Nova Sonic audio streaming)
+        self.task_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock:InvokeModel",
+                    "bedrock:InvokeModelWithBidirectionalStream",
+                ],
+                resources=[
+                    f"arn:aws:bedrock:{self.region}::foundation-model/*",
                 ],
             )
         )
@@ -80,6 +107,8 @@ class ComputeStack(Stack):
                 "DEPLOYMENT_MODE": "cloud",
                 "AWS_REGION": self.region,
                 "STRANDS_RUNTIME_ARN": strands_runtime_arn or "",
+                "TOOL_LAMBDA_TIME": _tool_arns.get("get_current_time", ""),
+                "TOOL_LAMBDA_WEATHER": _tool_arns.get("get_weather", ""),
             },
             logging=ecs.LogDrivers.aws_logs(stream_prefix="chatbot"),
             health_check=ecs.HealthCheck(

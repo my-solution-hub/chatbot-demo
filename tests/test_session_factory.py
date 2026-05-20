@@ -48,11 +48,7 @@ class TestCreateSessionManagerLocal:
 class TestCreateSessionManagerCloud:
     """Tests for cloud mode."""
 
-    def test_cloud_mode_returns_agentcore_session_manager(self) -> None:
-        from nova_sonic_demo.web.agentcore_session_manager import (
-            AgentCoreSessionManager,
-        )
-
+    def test_cloud_mode_returns_session_manager(self) -> None:
         config = DeploymentConfig(
             mode="cloud",
             region="us-east-1",
@@ -60,7 +56,7 @@ class TestCreateSessionManagerCloud:
             agent_alias_id="test-alias-id",
         )
         manager = create_session_manager(_noop_send_text, _noop_send_bytes, config)
-        assert isinstance(manager, AgentCoreSessionManager)
+        assert isinstance(manager, SessionManager)
 
     def test_cloud_mode_manager_starts_in_ready_state(self) -> None:
         config = DeploymentConfig(
