@@ -258,7 +258,7 @@
         // --- WebSocket ---
         function connectWebSocket() {
             const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-            const url = protocol + "//" + window.location.host + "/ws/session";
+            const url = protocol + "//" + window.location.host + "/ws/agent";
             ws = new WebSocket(url);
             ws.binaryType = "arraybuffer";
 

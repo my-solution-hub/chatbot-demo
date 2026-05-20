@@ -297,15 +297,11 @@ async def websocket_agent_proxy(ws: WebSocket) -> None:
     receive_task: asyncio.Task | None = None
 
     try:
-        # Connect to AgentCore Runtime
-        await _send_text(json.dumps({"type": "status", "state": "connecting"}))
-        await proxy.connect()
-        await _send_text(json.dumps({"type": "status", "state": "active"}))
+        # Send initial ready status (same protocol as /ws/session)
+        await _send_text(json.dumps({"type": "status", "state": "ready"}))
 
-        # Start receiving events from agent in background
-        receive_task = asyncio.create_task(
-            proxy.receive_events(on_audio=_send_bytes, on_text=_send_text)
-        )
+        # Wait for start command before connecting to AgentCore
+        connected = False
 
         # Forward browser messages to agent
         while True:
@@ -313,20 +309,28 @@ async def websocket_agent_proxy(ws: WebSocket) -> None:
 
             if message["type"] == "websocket.receive":
                 if "bytes" in message and message["bytes"]:
-                    # Binary PCM audio → forward to agent
-                    await proxy.send_audio(message["bytes"])
+                    # Binary PCM audio → forward to agent (only if connected)
+                    if connected:
+                        await proxy.send_audio(message["bytes"])
                 elif "text" in message and message["text"]:
-                    # Text command → forward to agent
                     try:
                         cmd = json.loads(message["text"])
                         cmd_type = cmd.get("type", "")
-                        if cmd_type == "start":
-                            # Already connected, just acknowledge
-                            pass
+                        if cmd_type == "start" and not connected:
+                            # Connect to AgentCore Runtime on start
+                            await _send_text(json.dumps({"type": "status", "state": "connecting"}))
+                            await proxy.connect()
+                            await _send_text(json.dumps({"type": "status", "state": "active"}))
+                            connected = True
+
+                            # Start receiving events from agent in background
+                            receive_task = asyncio.create_task(
+                                proxy.receive_events(on_audio=_send_bytes, on_text=_send_text)
+                            )
                         elif cmd_type == "stop":
                             break
-                        else:
-                            # Forward other text messages
+                        elif connected:
+                            # Forward other text messages to agent
                             await proxy.send_text(message["text"])
                     except (json.JSONDecodeError, TypeError):
                         pass
