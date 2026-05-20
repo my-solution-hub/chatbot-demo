@@ -1,8 +1,14 @@
 """AgentCoreSessionManager — bridges a WebSocket connection to Bedrock AgentCore.
 
 Manages the lifecycle of a single voice session bound to one WebSocket
-connection, proxying audio and events to/from Bedrock AgentCore's
-bidirectional streaming API via ``invoke_agent``.
+connection, proxying audio and events to/from Bedrock AgentCore.
+
+Supports two invocation modes:
+1. AgentCore Runtime (new): invoke_agent_runtime with agentRuntimeArn
+2. Legacy Bedrock Agent: invoke_agent with agentId/agentAliasId
+
+The mode is auto-detected: if agent_id looks like an ARN
+(contains "arn:aws:bedrock"), it uses invoke_agent_runtime.
 
 Implements the same state machine as SessionManager:
 ready → connecting → active (success) or ready → connecting → error (failure).
@@ -15,6 +21,7 @@ Requirements: 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 3.1, 3.2, 3.3, 3.4,
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from typing import Any, Awaitable, Callable, Literal, Optional
@@ -38,6 +45,14 @@ logger = logging.getLogger("nova_sonic_demo.web.agentcore_session_manager")
 
 SessionState = Literal["ready", "connecting", "active", "error"]
 
+# Minimum session ID length required by AgentCore Runtime
+_MIN_SESSION_ID_LEN = 33
+
+
+def _is_runtime_arn(agent_id: str) -> bool:
+    """Return True if agent_id is an AgentCore Runtime ARN."""
+    return "arn:aws:bedrock" in agent_id and "runtime" in agent_id
+
 
 class AgentCoreSessionManager:
     """Manages the lifecycle of an AgentCore streaming session bound to a WebSocket.
@@ -49,14 +64,14 @@ class AgentCoreSessionManager:
     send_bytes:
         Async callable to send binary data to the WebSocket client.
     agent_id:
-        Bedrock AgentCore agent identifier.
+        Either a Bedrock AgentCore Runtime ARN (new path) or a legacy agent ID.
     agent_alias_id:
-        Bedrock AgentCore agent alias identifier.
+        Agent alias ID (used in legacy mode; "DEFAULT" for runtime mode).
     region:
         AWS region for the AgentCore client.
     client_factory:
-        Optional injectable factory for creating the boto3 bedrock-agent-runtime
-        client. Accepts (region,) and returns a client. Used for testing.
+        Optional injectable factory for creating the boto3 client.
+        Accepts (region,) and returns a client. Used for testing.
     """
 
     def __init__(
@@ -75,6 +90,7 @@ class AgentCoreSessionManager:
         self._agent_alias_id = agent_alias_id
         self._region = region
         self._client_factory = client_factory
+        self._use_runtime = _is_runtime_arn(agent_id)
 
         self._state: SessionState = "ready"
         self._client: Any = None
@@ -128,17 +144,24 @@ class AgentCoreSessionManager:
         await self._transition("connecting")
 
         # Generate a unique session ID for this AgentCore session
-        self._session_id = str(uuid.uuid4())
+        # AgentCore Runtime requires at least 33 characters
+        self._session_id = uuid.uuid4().hex + uuid.uuid4().hex[:2]  # 34 chars
 
-        # 1. Create the bedrock-agent-runtime client
+        # 1. Create the boto3 client
         try:
             if self._client_factory is not None:
                 self._client = self._client_factory(self._region)
             else:
-                import boto3  # noqa: WPS433 (intentional local import)
-                self._client = boto3.client(
-                    "bedrock-agent-runtime", region_name=self._region
-                )
+                import boto3  # noqa: WPS433
+
+                if self._use_runtime:
+                    self._client = boto3.client(
+                        "bedrock-agentcore", region_name=self._region
+                    )
+                else:
+                    self._client = boto3.client(
+                        "bedrock-agent-runtime", region_name=self._region
+                    )
         except Exception as exc:
             logger.error("Failed to create AgentCore client: %s", exc)
             await self._send_error(
@@ -146,17 +169,20 @@ class AgentCoreSessionManager:
             )
             return
 
-        # 2. Call invoke_agent with bidirectional streaming
+        # 2. Invoke the agent
         try:
             response = await asyncio.get_event_loop().run_in_executor(
                 None,
                 self._invoke_agent,
             )
-            self._response_stream = response.get("completion")
+            if self._use_runtime:
+                self._response_stream = response.get("response")
+            else:
+                self._response_stream = response.get("completion")
         except Exception as exc:
             error_category = _classify_error(exc)
             logger.error(
-                "AgentCore invoke_agent failed (%s): %s", error_category, exc
+                "AgentCore invocation failed (%s): %s", error_category, exc
             )
             await self._send_error(
                 f"Failed to connect to AgentCore: {error_category} - "
@@ -166,17 +192,32 @@ class AgentCoreSessionManager:
 
         # 3. Transition to active
         await self._transition("active")
-        logger.info("AgentCore session is now ACTIVE (session_id=%s)", self._session_id)
+        logger.info(
+            "AgentCore session is now ACTIVE (session_id=%s, runtime_mode=%s)",
+            self._session_id,
+            self._use_runtime,
+        )
 
     def _invoke_agent(self) -> dict:
-        """Synchronous invoke_agent call (run in executor)."""
-        return self._client.invoke_agent(
-            agentId=self._agent_id,
-            agentAliasId=self._agent_alias_id,
-            sessionId=self._session_id,
-            enableTrace=False,
-            inputText="",
-        )
+        """Synchronous agent invocation (run in executor)."""
+        if self._use_runtime:
+            # New AgentCore Runtime API
+            payload = json.dumps({"prompt": ""}).encode("utf-8")
+            return self._client.invoke_agent_runtime(
+                agentRuntimeArn=self._agent_id,
+                runtimeSessionId=self._session_id,
+                payload=payload,
+                qualifier="DEFAULT",
+            )
+        else:
+            # Legacy Bedrock Agent API
+            return self._client.invoke_agent(
+                agentId=self._agent_id,
+                agentAliasId=self._agent_alias_id,
+                sessionId=self._session_id,
+                enableTrace=False,
+                inputText="",
+            )
 
     async def handle_audio(self, pcm_bytes: bytes) -> None:
         """Forward validated PCM audio to AgentCore stream.
@@ -203,11 +244,7 @@ class AgentCoreSessionManager:
                 logger.warning("Failed to send audio to AgentCore: %s", exc)
 
     def _send_audio_chunk(self, pcm_bytes: bytes) -> None:
-        """Synchronous audio send (run in executor).
-
-        The exact API shape for sending audio to AgentCore may vary.
-        This implementation uses the stream's send method if available.
-        """
+        """Synchronous audio send (run in executor)."""
         if hasattr(self._response_stream, "send_audio_event"):
             self._response_stream.send_audio_event(audio=pcm_bytes)
         elif hasattr(self._response_stream, "send"):
@@ -230,12 +267,15 @@ class AgentCoreSessionManager:
             return
 
         try:
-            events = await asyncio.get_event_loop().run_in_executor(
-                None,
-                self._consume_stream,
-            )
-            for event in events:
-                await self._route_event(event)
+            if self._use_runtime:
+                await self._consume_runtime_response()
+            else:
+                events = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    self._consume_stream,
+                )
+                for event in events:
+                    await self._route_event(event)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -245,11 +285,81 @@ class AgentCoreSessionManager:
                     f"AgentCore stream error: {type(exc).__name__}: {str(exc)[:200]}"
                 )
 
+    async def _consume_runtime_response(self) -> None:
+        """Consume invoke_agent_runtime response.
+
+        The response from invoke_agent_runtime is a StreamingBody.
+        We read it and parse the JSON payload, then route events.
+        """
+        response_body = await asyncio.get_event_loop().run_in_executor(
+            None,
+            self._read_runtime_response,
+        )
+
+        if response_body is None:
+            return
+
+        # Parse the response — it may be a single JSON object or streaming chunks
+        try:
+            data = json.loads(response_body)
+        except (json.JSONDecodeError, TypeError):
+            # Not JSON — might be raw text response
+            msg = serialize_server_message(
+                TranscriptMessage(role="ASSISTANT", text=response_body)
+            )
+            await self._send_text(msg)
+            return
+
+        # Route based on response structure
+        if isinstance(data, dict):
+            # Single response object
+            result_text = ""
+            if "result" in data:
+                result_text = str(data["result"])
+            elif "output" in data:
+                output = data["output"]
+                if isinstance(output, dict) and "message" in output:
+                    message = output["message"]
+                    if isinstance(message, dict) and "content" in message:
+                        content = message["content"]
+                        if isinstance(content, list) and content:
+                            result_text = content[0].get("text", str(content))
+                        else:
+                            result_text = str(content)
+                    else:
+                        result_text = str(message)
+                else:
+                    result_text = str(output)
+            elif "message" in data:
+                result_text = str(data["message"])
+            else:
+                result_text = json.dumps(data)
+
+            if result_text:
+                msg = serialize_server_message(
+                    TranscriptMessage(role="ASSISTANT", text=result_text)
+                )
+                await self._send_text(msg)
+
+    def _read_runtime_response(self) -> Optional[str]:
+        """Read the streaming body from invoke_agent_runtime response."""
+        if self._response_stream is None:
+            return None
+
+        if hasattr(self._response_stream, "read"):
+            # StreamingBody
+            return self._response_stream.read().decode("utf-8")
+        elif isinstance(self._response_stream, bytes):
+            return self._response_stream.decode("utf-8")
+        elif isinstance(self._response_stream, str):
+            return self._response_stream
+        else:
+            return str(self._response_stream)
+
     def _consume_stream(self) -> list:
-        """Synchronous stream consumption (run in executor).
+        """Synchronous stream consumption for legacy mode (run in executor).
 
         Iterates over the response stream and collects events.
-        The exact event shape depends on the AgentCore API version.
         """
         events = []
         try:
@@ -257,7 +367,6 @@ class AgentCoreSessionManager:
                 for event in self._response_stream:
                     events.append(event)
         except Exception as exc:
-            # Re-raise to be caught by the caller
             raise exc
         return events
 
